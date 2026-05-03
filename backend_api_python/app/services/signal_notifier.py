@@ -226,6 +226,8 @@ class SignalNotifier:
                     ok, err = self._notify_webhook(
                         url=url,
                         payload=payload,
+                        title=title,
+                        message=message_plain,
                         headers_override=(targets.get("webhook_headers") or targets.get("webhookHeaders") or None),
                         token_override=(targets.get("webhook_token") or targets.get("webhookToken") or None),
                         signing_secret_override=(
@@ -347,7 +349,7 @@ class SignalNotifier:
         stype = str(sig.get("type") or "")
         action = str(sig.get("action") or "").upper()
         side = str(sig.get("side") or "").upper()
-        title = f"QD Signal | {symbol} | {action} {side}".strip()
+
 
         price_s = _fmt_float(order.get("ref_price") or 0.0, max_decimals=10)
         stake_s = _fmt_float(order.get("stake_amount") or 0.0, max_decimals=12)
@@ -356,6 +358,7 @@ class SignalNotifier:
         ts_iso = str(payload.get("timestamp_iso") or "")
         ts_disp = str(payload.get("timestamp_display") or "") or ts_iso
         ts_lbl = str(payload.get("time_label") or "Time")
+        title = f"{symbol} | {price_s} | {action}".strip()
 
         plain_lines = [
             "QuantDinger Signal",
@@ -542,6 +545,8 @@ class SignalNotifier:
         *,
         url: str,
         payload: Dict[str, Any],
+        title: str = "",
+        message: str = "",
         headers_override: Any = None,
         token_override: Any = None,
         signing_secret_override: Any = None,
@@ -558,11 +563,20 @@ class SignalNotifier:
         - Bearer Token: notification_config.targets.webhook_token
         - 签名验证: notification_config.targets.webhook_signing_secret
         - 自动重试: 429/5xx 时重试一次
+        - 自动检测 Server酱 格式并适配
         """
         if not url:
             return False, "missing_webhook_url"
         if not (str(url).startswith("http://") or str(url).startswith("https://")):
             return False, "invalid_webhook_url"
+
+        # 检测是否为 Server酱 地址
+        is_serverchan = (
+            "sctapi.ftqq.com" in url
+            or "ftqq.com" in url
+            or "sctapi" in url
+            or "serverchan" in url.lower()
+        )
 
         headers: Dict[str, str] = {
             "Content-Type": "application/json",
@@ -589,24 +603,36 @@ class SignalNotifier:
         if tok and "Authorization" not in headers:
             headers["Authorization"] = f"Bearer {tok}"
 
-        # Optional signing secret (per-strategy override, else env)
-        signing_secret = str(signing_secret_override or "").strip() or (os.getenv("SIGNAL_WEBHOOK_SIGNING_SECRET") or "").strip()
-        if signing_secret:
-            try:
-                ts = str(int(time.time()))
-                body = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-                sig_base = (ts + ".").encode("utf-8") + body
-                sig = hmac.new(signing_secret.encode("utf-8"), sig_base, hashlib.sha256).hexdigest()
-                headers["X-QD-Timestamp"] = ts
-                headers["X-QD-Signature"] = sig
-                # Send raw bytes so signature matches what we sign.
-                def _post_once(timeout: float) -> requests.Response:
-                    return requests.post(url, data=body, headers=headers, timeout=timeout)
-            except Exception as e:
-                return False, f"webhook_signing_failed:{e}"
-        else:
+        # 根据 webhook 类型选择发送数据
+        if is_serverchan:
+            # Server酱 格式：title + content
+            post_data: Dict[str, Any] = {
+                "title": str(title or "QuantDinger Signal"),
+                "content": str(message or "")[:4096],
+            }
+            # 对于 Server酱，我们不需要签名，直接发送 json 格式
             def _post_once(timeout: float) -> requests.Response:
-                return requests.post(url, json=payload, headers=headers, timeout=timeout)
+                return requests.post(url, json=post_data, headers=headers, timeout=timeout)
+        else:
+            # 通用 webhook 格式，使用原始 payload
+            # Optional signing secret (per-strategy override, else env)
+            signing_secret = str(signing_secret_override or "").strip() or (os.getenv("SIGNAL_WEBHOOK_SIGNING_SECRET") or "").strip()
+            if signing_secret:
+                try:
+                    ts = str(int(time.time()))
+                    body = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                    sig_base = (ts + ".").encode("utf-8") + body
+                    sig = hmac.new(signing_secret.encode("utf-8"), sig_base, hashlib.sha256).hexdigest()
+                    headers["X-QD-Timestamp"] = ts
+                    headers["X-QD-Signature"] = sig
+                    # Send raw bytes so signature matches what we sign.
+                    def _post_once(timeout: float) -> requests.Response:
+                        return requests.post(url, data=body, headers=headers, timeout=timeout)
+                except Exception as e:
+                    return False, f"webhook_signing_failed:{e}"
+            else:
+                def _post_once(timeout: float) -> requests.Response:
+                    return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
         # Post with minimal retry on 429/5xx
         try:
@@ -899,7 +925,7 @@ class SignalNotifier:
                         "timestamp": now,
                         "timestamp_iso": iso,
                     }
-                    ok, err = self._notify_webhook(url=url, payload=wh_payload, token_override=tok or None)
+                    ok, err = self._notify_webhook(url=url, payload=wh_payload, title=title, message=plain, token_override=tok or None)
                 else:
                     ok, err = False, f"unsupported_channel:{c}"
             except Exception as e:
