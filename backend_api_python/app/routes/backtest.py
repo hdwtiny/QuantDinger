@@ -3,6 +3,7 @@ Backtest API routes
 """
 from flask import Blueprint, request, jsonify, g
 from datetime import datetime
+from typing import Optional
 import calendar
 import traceback
 import json
@@ -58,7 +59,7 @@ def _openrouter_base_and_key() -> tuple[str, str]:
     return base, key
 
 
-def _normalize_lang(lang: str | None) -> str:
+def _normalize_lang(lang: Optional[str]) -> str:
     """
     Normalize language code for AI output.
 

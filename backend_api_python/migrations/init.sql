@@ -1108,6 +1108,30 @@ CREATE INDEX IF NOT EXISTS idx_agent_paper_orders_user ON qd_agent_paper_orders(
 CREATE INDEX IF NOT EXISTS idx_agent_paper_orders_token ON qd_agent_paper_orders(agent_token_id);
 
 -- =============================================================================
+-- 31. Price Alerts (价格预警)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS qd_price_alerts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL DEFAULT 1 REFERENCES qd_users(id) ON DELETE CASCADE,
+    market VARCHAR(50) NOT NULL,
+    symbol VARCHAR(50) NOT NULL,
+    target_price DECIMAL(20,8) NOT NULL,
+    direction VARCHAR(10) NOT NULL,           -- above: 价格高于目标时触发, below: 价格低于目标时触发
+    notification_config TEXT DEFAULT '',       -- 通知配置 JSON
+    is_active INTEGER DEFAULT 1,               -- 是否激活
+    is_triggered INTEGER DEFAULT 0,            -- 是否已触发（每个监控价格只通知一次）
+    triggered_at TIMESTAMP,                    -- 触发时间
+    notes TEXT DEFAULT '',                     -- 备注
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, market, symbol, target_price, direction)
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_alerts_user_id ON qd_price_alerts(user_id);
+CREATE INDEX IF NOT EXISTS idx_price_alerts_active ON qd_price_alerts(is_active);
+CREATE INDEX IF NOT EXISTS idx_price_alerts_symbol ON qd_price_alerts(market, symbol);
+
+-- =============================================================================
 -- Completion Notice
 -- =============================================================================
 DO $$

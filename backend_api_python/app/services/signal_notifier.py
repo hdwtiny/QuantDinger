@@ -358,7 +358,15 @@ class SignalNotifier:
         ts_iso = str(payload.get("timestamp_iso") or "")
         ts_disp = str(payload.get("timestamp_display") or "") or ts_iso
         ts_lbl = str(payload.get("time_label") or "Time")
-        title = f"{symbol} | {price_s} | {action}".strip()
+        
+        # 价格预警特殊处理
+        extra_data = (payload or {}).get("extra") or {}
+        if stype == "price_alert":
+            direction = extra_data.get("direction", "above")
+            up_down = "UP" if direction == "above" else "DOWN"
+            title = f"价格 {up_down} {symbol} {price_s}"
+        else:
+            title = f"{symbol} | {price_s} | {action}".strip()
 
         plain_lines = [
             "QuantDinger Signal",

@@ -149,6 +149,36 @@ def start_usdt_order_worker():
         logger.error(f"Failed to start USDT order worker: {e}")
 
 
+def start_price_alert_monitor():
+    """Start the price alert monitoring background worker.
+
+    Periodically checks all active price alerts and triggers notifications
+    when price conditions are met.
+    """
+    import os
+    # Avoid running twice with Flask reloader
+    debug = os.getenv("PYTHON_API_DEBUG", "false").lower() == "true"
+    if debug:
+        if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+            return
+
+    try:
+        from app.services.price_alert_service import PriceAlertService
+        price_alert_service = PriceAlertService()
+        # Run the alert monitor in a background thread
+        import threading
+        monitor_thread = threading.Thread(
+            target=price_alert_service.run_alert_monitor,
+            daemon=True,
+            name="PriceAlertMonitor"
+        )
+        monitor_thread.start()
+        logger.info("Price alert monitor background worker started")
+    except Exception as e:
+        logger.error(f"Failed to start price alert monitor: {e}")
+        logger.error(traceback.format_exc())
+
+
 def restore_running_strategies():
     """
     Restore running strategies on startup.
@@ -250,6 +280,7 @@ def create_app(config_name='default'):
         start_portfolio_monitor()
         start_usdt_order_worker()
         start_polymarket_worker()
+        start_price_alert_monitor()
         # Offline calibration to make AI thresholds self-tuning.
         try:
             from app.services.ai_calibration import start_ai_calibration_worker
